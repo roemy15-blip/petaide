@@ -972,7 +972,9 @@ function openNodePopup(node,nodeEl,item){
   }
 
   bg.querySelector('.pop-close').onclick=close;
-  bg.addEventListener('click',e=>{if(e.target===bg)close();});
+var bgReady=false;
+setTimeout(()=>{bgReady=true;},300);
+bg.addEventListener('click',e=>{if(bgReady&&e.target===bg)close();});
 
   bg.querySelector('[data-act="save"]').onclick=()=>{
     commit();
