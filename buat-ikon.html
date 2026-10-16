@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<title>Buat Ikon PetaIde</title>
+<style>
+body{margin:0;min-height:100vh;display:grid;place-items:center;
+  background:#0f1117;color:#e7e9f0;
+  font-family:-apple-system,"Segoe UI",Roboto,sans-serif;padding:20px}
+.card{max-width:420px;text-align:center;background:#151823;
+  border:1px solid #272d3f;border-radius:16px;padding:28px}
+h1{margin:0 0 8px;font-size:19px}
+p{color:#8b93a7;font-size:13.5px;line-height:1.7;margin:0 0 20px}
+.preview{width:120px;height:120px;margin:0 auto 20px;border-radius:22px;
+  background:linear-gradient(135deg,#7c5cff,#4dd4c0);
+  display:grid;place-items:center;font-size:66px;
+  box-shadow:0 10px 30px rgba(124,92,255,.35)}
+button{padding:12px 20px;border-radius:10px;border:none;
+  background:linear-gradient(135deg,#7c5cff,#6a4be0);color:#fff;
+  font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;
+  margin:4px}
+button.alt{background:#1c2030;border:1px solid #272d3f}
+button:active{transform:scale(.96)}
+.step{text-align:left;color:#8b93a7;font-size:12.5px;line-height:1.8;
+  background:#11141d;border-radius:10px;padding:14px 16px;margin-top:18px}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="preview">📄</div>
+  <h1>Ikon PetaIde</h1>
+  <p>Klik kedua tombol di bawah untuk membuat ikon aplikasi. File akan masuk ke folder <b>Downloads</b> HP/PC-mu.</p>
+  <button onclick="gen(192)">⬇ Ikon 192×192</button>
+  <button onclick="gen(512)">⬇ Ikon 512×512</button>
+  <div class="step">
+    <b>Langkah setelah unduh:</b><br>
+    1. Buka folder <b>Downloads</b>.<br>
+    2. Pindahkan <code>icon-192.png</code> dan <code>icon-512.png</code> ke folder <code>petaide</code> (satu folder dengan <code>index.html</code>).<br>
+    3. Selesai.
+  </div>
+</div>
+
+<script>
+function gen(size){
+  const c=document.createElement('canvas');
+  c.width=size;c.height=size;
+  const ctx=c.getContext('2d');
+
+  // background gradient
+  const g=ctx.createLinearGradient(0,0,size,size);
+  g.addColorStop(0,'#7c5cff');
+  g.addColorStop(1,'#4dd4c0');
+  ctx.fillStyle=g;
+
+  // rounded square
+  const r=size*0.22;
+  ctx.beginPath();
+  ctx.moveTo(r,0);
+  ctx.arcTo(size,0,size,size,r);
+  ctx.arcTo(size,size,0,size,r);
+  ctx.arcTo(0,size,0,0,r);
+  ctx.arcTo(0,0,size,0,r);
+  ctx.closePath();
+  ctx.fill();
+
+  // emoji document
+  ctx.font=`${size*0.56}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif`;
+  ctx.textAlign='center';
+  ctx.textBaseline='middle';
+  ctx.fillText('📄', size/2, size*0.53);
+
+  c.toBlob(b=>{
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(b);
+    a.download='icon-'+size+'.png';
+    document.body.appendChild(a);a.click();a.remove();
+  },'image/png');
+}
+</script>
+</body>
+</html>
