@@ -519,7 +519,1133 @@ const load=()=>{try{const r=localStorage.getItem(LS_KEY);if(r){const d=JSON.pars
 const getActive=()=>state.items.find(i=>i.id===state.activeId)||null;
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
-/* =========================================================
+  /* =========================================================
    UTIL
    ========================================================= */
-function t
+function toast(m){
+  const t=document.getElementById('toast');
+  t.textContent=m;t.classList.add('on');
+  clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('on'),2000);
+}
+function download(name,content,type){
+  const blob=content instanceof Blob?content:new Blob([content],{type:type||'text/plain;charset=utf-8'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),1500);
+}
+const safeName=s=>(s||'tanpa-judul').replace(/[^\w\u00C0-\u024F\- ]/g,'').trim().slice(0,60)||'tanpa-judul';
+function timeAgo(ts){
+  const d=Date.now()-ts;
+  if(d<60000)return 'baru saja';
+  if(d<3600000)return Math.floor(d/60000)+' mnt';
+  if(d<86400000)return Math.floor(d/3600000)+' jam';
+  if(d<604800000)return Math.floor(d/86400000)+' hari';
+  return new Date(ts).toLocaleDateString('id-ID',{day:'numeric',month:'short'});
+}
+function stripTags(html){const d=document.createElement('div');d.innerHTML=html||'';return (d.textContent||'').replace(/\s+/g,' ').trim();}
+
+/* =========================================================
+   SIDEBAR
+   ========================================================= */
+const listEl=document.getElementById('list');
+const searchEl=document.getElementById('search');
+
+function renderList(){
+  const q=searchEl.value.trim().toLowerCase();
+  const items=state.items
+    .filter(i=>!q||(i.title||'').toLowerCase().includes(q)
+      ||(i.type==='note'&&stripTags(i.html).toLowerCase().includes(q))
+      ||(i.type==='mindmap'&&(i.nodes||[]).some(n=>(n.title||'').toLowerCase().includes(q)||(n.content||'').toLowerCase().includes(q))))
+    .sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0));
+
+  if(!state.items.length){
+    listEl.innerHTML=`<div class="empty-list">Belum ada apa pun.<br>Buat peta atau catatan ✨</div>`;
+    return;
+  }
+  if(!items.length){
+    listEl.innerHTML=`<div class="empty-list">Tidak ada hasil untuk<br>"${esc(q)}"</div>`;
+    return;
+  }
+  const maps=items.filter(i=>i.type==='mindmap');
+  const notes=items.filter(i=>i.type==='note');
+  let h='';
+  if(maps.length){h+=`<div class="sec">🧠 Peta Pikiran</div>`+maps.map(row).join('');}
+  if(notes.length){h+=`<div class="sec">📝 Catatan</div>`+notes.map(row).join('');}
+  listEl.innerHTML=h;
+
+  listEl.querySelectorAll('.item').forEach(el=>{
+    el.addEventListener('click',e=>{
+      if(e.target.closest('.dl'))return;
+      openItem(el.dataset.id);
+    });
+  });
+  listEl.querySelectorAll('.dl').forEach(b=>{
+    b.addEventListener('click',e=>{e.stopPropagation();askDelete(b.dataset.id);});
+  });
+}
+function row(it){
+  const ic=it.type==='mindmap'?'🧠':'📝';
+  const sub=it.type==='mindmap'
+    ?`${(it.nodes||[]).length} simpul`
+    :(stripTags(it.html).slice(0,26)||'kosong');
+  return `<div class="item ${it.id===state.activeId?'active':''}" data-id="${it.id}" data-type="${it.type}">
+    <div class="ic">${ic}</div>
+    <div class="mt">
+      <div class="t">${esc(it.title||'Tanpa judul')}</div>
+      <div class="d">${esc(sub)} · ${timeAgo(it.updatedAt||Date.now())}</div>
+    </div>
+    <button class="dl" data-id="${it.id}">✕</button>
+  </div>`;
+}
+
+/* =========================================================
+   CRUD
+   ========================================================= */
+function createMindmap(){
+  const rootId=uid();
+  const it={id:uid(),type:'mindmap',title:'Ide Baru',
+    createdAt:Date.now(),updatedAt:Date.now(),
+    nodes:[{id:rootId,title:'Ide Utama',content:'',x:120,y:240,parentId:null}]};
+  state.items.push(it);
+  state.activeId=it.id;
+  selectedNodeId=rootId;
+  save();renderList();openItem(it.id,true);
+  setTimeout(()=>toast('🧠 Peta dibuat'),100);
+}
+function createNote(){
+  const it={id:uid(),type:'note',title:'Catatan Baru',
+    createdAt:Date.now(),updatedAt:Date.now(),html:''};
+  state.items.push(it);
+  state.activeId=it.id;
+  save();renderList();openItem(it.id,true);
+  setTimeout(()=>document.getElementById('noteEditor').focus(),150);
+}
+function askDelete(id){
+  const it=state.items.find(i=>i.id===id);if(!it)return;
+  showModal('Hapus?',`"${it.title||'Tanpa judul'}" akan dihapus permanen.`,[
+    {label:'Hapus',danger:true,fn:()=>{state.items=state.items.filter(i=>i.id!==id);
+      if(state.activeId===id)state.activeId=null;
+      save();renderList();renderWorkspace();toast('🗑 Dihapus');}}
+  ]);
+}
+function openItem(id,focusTitle){
+  const it=state.items.find(i=>i.id===id);if(!it)return;
+  state.activeId=id;
+  if(it.type==='mindmap'){
+    selectedNodeId=(it.nodes.find(n=>!n.parentId)||it.nodes[0]||{}).id||null;
+  }
+  save();renderList();renderWorkspace();
+  if(focusTitle)setTimeout(()=>{const t=document.getElementById('titleInput');t.focus();t.select();},120);
+  closeSidebar();
+}
+
+/* =========================================================
+   WORKSPACE
+   ========================================================= */
+function renderWorkspace(){
+  const it=getActive();
+  const empty=document.getElementById('emptyState');
+  const mmV=document.getElementById('mmView');
+  const noteV=document.getElementById('noteView');
+  const ti=document.getElementById('titleInput');
+  const ta=document.getElementById('topActions');
+
+  if(!it){
+    empty.style.display='flex';
+    mmV.classList.remove('on');noteV.classList.remove('on');
+    ti.value='';ti.disabled=true;ta.innerHTML='';currentNoteId=null;
+    return;
+  }
+  empty.style.display='none';
+  ti.disabled=false;ti.value=it.title||'';
+
+  const saveBtn=`<button class="btn sm save" id="taSave">💾 <span class="lbl">Simpan</span></button>`;
+
+  if(it.type==='mindmap'){
+    mmV.classList.add('on');noteV.classList.remove('on');
+    ta.innerHTML=`${saveBtn}<button class="btn sm" id="taExport">📤 <span class="lbl">Ekspor</span></button>`;
+    document.getElementById('taSave').onclick=()=>{it.updatedAt=Date.now();save();toast('💾 Tersimpan');};
+    document.getElementById('taExport').onclick=showExportMenu;
+    renderMindmap(true);
+  } else {
+    noteV.classList.add('on');mmV.classList.remove('on');
+    ta.innerHTML=`${saveBtn}<button class="btn sm" id="taExport">📤 <span class="lbl">Ekspor</span></button>`;
+    document.getElementById('taSave').onclick=()=>{
+      it.html=noteEditor.innerHTML;it.updatedAt=Date.now();
+      save();renderList();toast('💾 Catatan tersimpan');
+    };
+    document.getElementById('taExport').onclick=showExportMenu;
+
+    if(currentNoteId!==it.id){
+      noteEditor.innerHTML=it.html||'';
+      currentNoteId=it.id;
+    }
+  }
+}
+
+/* =========================================================
+   TITLE
+   ========================================================= */
+const titleInput=document.getElementById('titleInput');
+titleInput.addEventListener('input',()=>{
+  const it=getActive();if(!it)return;
+  it.title=titleInput.value;it.updatedAt=Date.now();save();
+  clearTimeout(titleInput._t);titleInput._t=setTimeout(renderList,350);
+});
+titleInput.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();titleInput.blur();}});
+
+/* =========================================================
+   MINDMAP ENGINE
+   ========================================================= */
+const mmViewport=document.getElementById('mmViewport');
+const mmCanvas=document.getElementById('mmCanvas');
+const mmNodesEl=document.getElementById('mmNodes');
+const mmEdgesEl=document.getElementById('mmEdges');
+const zoomBadge=document.getElementById('zoomBadge');
+
+function applyTransform(){
+  mmCanvas.style.transform=`translate(${mmView.x}px,${mmView.y}px) scale(${mmView.scale})`;
+  zoomBadge.textContent=Math.round(mmView.scale*100)+'%';
+}
+
+function renderMindmap(resetView){
+  const it=getActive();if(!it||it.type!=='mindmap')return;
+  mmNodesEl.innerHTML='';
+  it.nodes.forEach(n=>{
+    const el=document.createElement('div');
+    el.className='mm-node'+(!n.parentId?' root':'');
+    el.dataset.id=n.id;
+    el.style.left=n.x+'px';el.style.top=n.y+'px';
+    el.textContent=n.title||'Ide';
+    if(n.content&&n.content.trim()){
+      const b=document.createElement('span');
+      b.className='badge';b.textContent='●';
+      el.appendChild(b);
+    }
+    mmNodesEl.appendChild(el);
+    attachNodeEvents(el,n,it);
+  });
+  if(resetView)fitView();else applyTransform();
+  requestAnimationFrame(drawEdges);
+}
+
+function attachNodeEvents(el,node,item){
+  // tap and drag
+  let startX=0,startY=0,origX=0,origY=0,moved=false,active=false,pid=null;
+
+  el.addEventListener('pointerdown',e=>{
+    if(e.button!==undefined&&e.button!==0)return;
+    e.stopPropagation();
+    e.preventDefault();
+    pid=e.pointerId;
+    el.setPointerCapture(pid);
+    startX=e.clientX;startY=e.clientY;
+    origX=node.x;origY=node.y;
+    moved=false;active=true;
+    selectedNodeId=node.id;
+  });
+
+  el.addEventListener('pointermove',e=>{
+    if(!active||e.pointerId!==pid)return;
+    const dx=(e.clientX-startX)/mmView.scale;
+    const dy=(e.clientY-startY)/mmView.scale;
+    if(Math.abs(e.clientX-startX)>8||Math.abs(e.clientY-startY)>8)moved=true;
+    if(moved){
+      node.x=Math.round(origX+dx);
+      node.y=Math.round(origY+dy);
+      el.style.left=node.x+'px';el.style.top=node.y+'px';
+      drawEdges();
+    }
+  });
+
+  el.addEventListener('pointerup',e=>{
+    if(!active||e.pointerId!==pid)return;
+    active=false;
+    try{el.releasePointerCapture(pid);}catch(_){}
+    if(moved){
+      item.updatedAt=Date.now();save();
+    } else {
+      openNodePopup(node,el,item);
+    }
+  });
+  el.addEventListener('pointercancel',()=>{active=false;});
+}
+
+function drawEdges(){
+  const it=getActive();if(!it||it.type!=='mindmap')return;
+  const box={};
+  [...mmNodesEl.children].forEach(el=>{
+    box[el.dataset.id]={
+      x:parseFloat(el.style.left)||0,
+      y:parseFloat(el.style.top)||0,
+      w:el.offsetWidth,h:el.offsetHeight
+    };
+  });
+  let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+  Object.values(box).forEach(b=>{
+    minX=Math.min(minX,b.x);minY=Math.min(minY,b.y);
+    maxX=Math.max(maxX,b.x+b.w);maxY=Math.max(maxY,b.y+b.h);
+  });
+  if(!isFinite(minX)){minX=minY=0;maxX=maxY=100;}
+  const pad=120;
+  const vx=minX-pad,vy=minY-pad;
+  const vw=(maxX-minX)+pad*2,vh=(maxY-minY)+pad*2;
+  mmEdgesEl.style.left=vx+'px';mmEdgesEl.style.top=vy+'px';
+  mmEdgesEl.setAttribute('width',vw);
+  mmEdgesEl.setAttribute('height',vh);
+  mmEdgesEl.setAttribute('viewBox',`${vx} ${vy} ${vw} ${vh}`);
+
+  let paths='';
+  it.nodes.forEach(n=>{
+    if(!n.parentId)return;
+    const p=box[n.parentId],c=box[n.id];if(!p||!c)return;
+    const x1=p.x+p.w,y1=p.y+p.h/2;
+    const x2=c.x,y2=c.y+c.h/2;
+    const dx=Math.max(36,Math.abs(x2-x1)*.5);
+    paths+=`<path d="M${x1},${y1} C${x1+dx},${y1} ${x2-dx},${y2} ${x2},${y2}" fill="none" stroke="#39415a" stroke-width="2" stroke-linecap="round"/>`;
+  });
+  mmEdgesEl.innerHTML=paths;
+}
+
+/* ---- PAN & PINCH ZOOM ---- */
+(function setupPanZoom(){
+  const pointers=new Map();
+  let startX=0,startY=0,origX=0,origY=0;
+  let pinchStartDist=0,pinchStartScale=1,pinchCenterX=0,pinchCenterY=0;
+  let panning=false;
+
+  mmViewport.addEventListener('pointerdown',e=>{
+    if(e.target.closest('.mm-node'))return;
+    e.preventDefault();
+    pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+    try{mmViewport.setPointerCapture(e.pointerId);}catch(_){}
+
+    if(pointers.size===1){
+      panning=true;
+      startX=e.clientX;startY=e.clientY;
+      origX=mmView.x;origY=mmView.y;
+    } else if(pointers.size===2){
+      panning=false;
+      const pts=[...pointers.values()];
+      pinchStartDist=Math.hypot(pts[0].x-pts[1].x,pts[0].y-pts[1].y);
+      pinchStartScale=mmView.scale;
+      const r=mmViewport.getBoundingClientRect();
+      pinchCenterX=(pts[0].x+pts[1].x)/2-r.left;
+      pinchCenterY=(pts[0].y+pts[1].y)/2-r.top;
+    }
+  });
+
+  mmViewport.addEventListener('pointermove',e=>{
+    if(!pointers.has(e.pointerId))return;
+    pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+
+    if(pointers.size===1&&panning){
+      mmView.x=origX+(e.clientX-startX);
+      mmView.y=origY+(e.clientY-startY);
+      applyTransform();
+    } else if(pointers.size===2){
+      const pts=[...pointers.values()];
+      const dist=Math.hypot(pts[0].x-pts[1].x,pts[0].y-pts[1].y);
+      const ratio=dist/pinchStartDist;
+      const newScale=Math.min(3,Math.max(.18,pinchStartScale*ratio));
+      mmView.x=pinchCenterX-(pinchCenterX-mmView.x)*(newScale/mmView.scale);
+      mmView.y=pinchCenterY-(pinchCenterY-mmView.y)*(newScale/mmView.scale);
+      mmView.scale=newScale;
+      applyTransform();
+    }
+  });
+
+  function endP(e){
+    pointers.delete(e.pointerId);
+    if(pointers.size<2)panning=pointers.size===1;
+    if(pointers.size===0)panning=false;
+  }
+  mmViewport.addEventListener('pointerup',endP);
+  mmViewport.addEventListener('pointercancel',endP);
+  mmViewport.addEventListener('pointerleave',endP);
+})();
+
+/* desktop wheel zoom */
+mmViewport.addEventListener('wheel',e=>{
+  e.preventDefault();
+  const r=mmViewport.getBoundingClientRect();
+  const mx=e.clientX-r.left,my=e.clientY-r.top;
+  const old=mmView.scale;
+  const next=Math.min(3,Math.max(.18,old*(e.deltaY<0?1.12:1/1.12)));
+  mmView.x=mx-(mx-mmView.x)*(next/old);
+  mmView.y=my-(my-mmView.y)*(next/old);
+  mmView.scale=next;applyTransform();
+},{passive:false});
+
+function fitView(){
+  const it=getActive();if(!it||!it.nodes.length)return;
+  const w=mmViewport.clientWidth,h=mmViewport.clientHeight;
+  let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+  it.nodes.forEach(n=>{
+    minX=Math.min(minX,n.x);minY=Math.min(minY,n.y);
+    maxX=Math.max(maxX,n.x+200);maxY=Math.max(maxY,n.y+56);
+  });
+  const bw=maxX-minX,bh=maxY-minY;
+  const scale=Math.min(1.1,Math.min((w-100)/bw,(h-100)/bh));
+  mmView.scale=Math.max(.22,scale);
+  mmView.x=(w-bw*mmView.scale)/2-minX*mmView.scale;
+  mmView.y=(h-bh*mmView.scale)/2-minY*mmView.scale;
+  applyTransform();
+  requestAnimationFrame(drawEdges);
+}
+
+/* =========================================================
+   NODE POPUP
+   ========================================================= */
+function openNodePopup(node,nodeEl,item){
+  // visual hint
+  nodeEl.classList.add('tapped');
+  setTimeout(()=>nodeEl.classList.remove('tapped'),320);
+
+  const nodeRect=nodeEl.getBoundingClientRect();
+
+  const bg=document.createElement('div');
+  bg.className='pop-bg';
+  bg.innerHTML=`
+    <div class="pop">
+      <div class="pop-head">
+        <input class="pop-title" placeholder="Judul cabang…" value="${esc(node.title||'')}">
+        <button class="pop-close" aria-label="Tutup">✕</button>
+      </div>
+      <div class="pop-body">
+        <div class="pop-content" contenteditable="true" data-ph="Tulis isi cabang di sini…">${esc(node.content||'')}</div>
+      </div>
+      <div class="pop-actions">
+        <div class="left">
+          <button class="del" data-act="delete">🗑 Hapus</button>
+        </div>
+        <div class="left">
+          <button data-act="child">＋ Cabang</button>
+          <button class="save" data-act="save">💾 Simpan</button>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(bg);
+
+  // FLIP animation
+  const card=bg.querySelector('.pop');
+  const finalRect=card.getBoundingClientRect();
+  const dx=nodeRect.left-finalRect.left+(nodeRect.width-finalRect.width)/2;
+  const dy=nodeRect.top-finalRect.top+(nodeRect.height-finalRect.height)/2;
+  const sx=Math.max(.15,nodeRect.width/finalRect.width);
+  const sy=Math.max(.15,nodeRect.height/finalRect.height);
+
+  card.style.transformOrigin='top left';
+  card.style.transform=`translate(${dx}px,${dy}px) scale(${sx},${sy})`;
+  card.style.opacity='0.4';
+
+  requestAnimationFrame(()=>{
+    card.style.transition='transform .34s cubic-bezier(.2,.8,.2,1),opacity .22s';
+    card.style.transform='translate(0,0) scale(1)';
+    card.style.opacity='1';
+  });
+
+  const titleEl=bg.querySelector('.pop-title');
+  const contentEl=bg.querySelector('.pop-content');
+
+  // auto focus title if empty
+  setTimeout(()=>{
+    if(!node.title)titleEl.focus();
+  },380);
+
+  function commit(){
+    node.title=(titleEl.value||'').trim()||'Ide';
+    node.content=contentEl.innerHTML||'';
+    item.updatedAt=Date.now();
+    save();
+  }
+  function close(){
+    commit();
+    card.style.transition='transform .25s ease,opacity .2s ease';
+    card.style.transform=`translate(${dx}px,${dy}px) scale(${sx},${sy})`;
+    card.style.opacity='0.3';
+    setTimeout(()=>{
+      bg.remove();
+      renderMindmap(false);
+    },230);
+  }
+
+  bg.querySelector('.pop-close').onclick=close;
+  bg.addEventListener('click',e=>{if(e.target===bg)close();});
+
+  bg.querySelector('[data-act="save"]').onclick=()=>{
+    commit();
+    toast('💾 Cabang tersimpan');
+    close();
+  };
+  bg.querySelector('[data-act="delete"]').onclick=()=>{
+    if(!node.parentId){toast('⚠️ Simpul utama tak bisa dihapus');return;}
+    // remove node + descendants
+    const remove=new Set();
+    (function collect(id){
+      remove.add(id);
+      item.nodes.filter(n=>n.parentId===id).forEach(n=>collect(n.id));
+    })(node.id);
+    item.nodes=item.nodes.filter(n=>!remove.has(n.id));
+    item.updatedAt=Date.now();save();
+    bg.remove();renderMindmap(false);
+    toast('🗑 Dihapus');
+  };
+  bg.querySelector('[data-act="child"]').onclick=()=>{
+    commit();
+    const siblings=item.nodes.filter(n=>n.parentId===node.id);
+    const child={
+      id:uid(),title:'Cabang baru',content:'',
+      x:node.x+250,
+      y:node.y+(siblings.length-(siblings.length-1)/2)*78,
+      parentId:node.id
+    };
+    item.nodes.push(child);item.updatedAt=Date.now();save();
+    bg.remove();renderMindmap(false);
+    toast('＋ Cabang ditambahkan');
+  };
+
+  // autosave on close of keyboard
+  titleEl.addEventListener('blur',()=>{commit();});
+  contentEl.addEventListener('blur',()=>{commit();});
+}
+
+/* ---- Node operations ---- */
+function addChild(){
+  const it=getActive();if(!it||it.type!=='mindmap')return;
+  let parent=it.nodes.find(n=>n.id===selectedNodeId);
+  if(!parent)parent=it.nodes.find(n=>!n.parentId)||it.nodes[0];
+  if(!parent)return;
+  const siblings=it.nodes.filter(n=>n.parentId===parent.id);
+  const node={
+    id:uid(),title:'Cabang baru',content:'',
+    x:parent.x+250,
+    y:parent.y+(siblings.length-(siblings.length-1)/2)*78,
+    parentId:parent.id
+  };
+  it.nodes.push(node);selectedNodeId=node.id;
+  it.updatedAt=Date.now();save();renderMindmap(false);
+  toast('＋ Cabang ditambahkan');
+}
+function addSibling(){
+  const it=getActive();if(!it||it.type!=='mindmap')return;
+  const cur=it.nodes.find(n=>n.id===selectedNodeId);
+  if(!cur||!cur.parentId){addChild();return;}
+  const node={
+    id:uid(),title:'Cabang baru',content:'',
+    x:cur.x,y:cur.y+78,parentId:cur.parentId
+  };
+  it.nodes.push(node);selectedNodeId=node.id;
+  it.updatedAt=Date.now();save();renderMindmap(false);
+}
+function autoLayout(){
+  const it=getActive();if(!it||it.type!=='mindmap'||!it.nodes.length)return;
+  const root=it.nodes.find(n=>!n.parentId);if(!root){toast('⚠️ Tidak ada akar');return;}
+  const childrenOf=id=>it.nodes.filter(n=>n.parentId===id);
+  let leafCount=0;
+  const GAP_Y=88,GAP_X=270;
+  function walk(node,depth){
+    const kids=childrenOf(node.id);
+    let y;
+    if(!kids.length)y=leafCount++;
+    else{
+      const ys=kids.map(k=>walk(k,depth+1));
+      y=(ys[0]+ys[ys.length-1])/2;
+    }
+    node._x=depth;node._y=y;
+    return y;
+  }
+  walk(root,0);
+  const maxY=Math.max(...it.nodes.map(n=>n._y));
+  it.nodes.forEach(n=>{
+    n.x=100+n._x*GAP_X;
+    n.y=80+(n._y-maxY/2)*GAP_Y+300;
+  });
+  it.updatedAt=Date.now();save();renderMindmap(false);fitView();
+  toast('🪄 Tata ulang selesai');
+}
+
+/* =========================================================
+   MINDMAP EXPORT PNG
+   ========================================================= */
+function exportMindmapPNG(){
+  const it=getActive();
+  if(!it||it.type!=='mindmap'||!it.nodes.length){toast('⚠️ Kosong');return;}
+  const els=[...mmNodesEl.children];
+  const data=els.map(el=>({
+    x:parseFloat(el.style.left),y:parseFloat(el.style.top),
+    w:el.offsetWidth,h:el.offsetHeight,
+    text:el.firstChild.nodeType===3?el.firstChild.textContent:el.textContent,
+    root:el.classList.contains('root')
+  }));
+  let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+  data.forEach(n=>{
+    minX=Math.min(minX,n.x);minY=Math.min(minY,n.y);
+    maxX=Math.max(maxX,n.x+n.w);maxY=Math.max(maxY,n.y+n.h);
+  });
+  const PAD=60,SCALE=2;
+  const W=(maxX-minX)+PAD*2,H=(maxY-minY)+PAD*2;
+  const cv=document.createElement('canvas');
+  cv.width=W*SCALE;cv.height=H*SCALE;
+  const ctx=cv.getContext('2d');
+  ctx.scale(SCALE,SCALE);
+  ctx.fillStyle='#0f1117';ctx.fillRect(0,0,W,H);
+
+  const box={};
+  data.forEach((n,i)=>{box[i]={x:n.x-minX+PAD,y:n.y-minY+PAD,w:n.w,h:n.h};});
+  const idxById={};
+  els.forEach((el,i)=>idxById[el.dataset.id]=i);
+  it.nodes.forEach(n=>{
+    if(!n.parentId)return;
+    const pi=idxById[n.parentId],ci=idxById[n.id];
+    if(pi===undefined||ci===undefined)return;
+    const p=box[pi],c=box[ci];
+    const x1=p.x+p.w,y1=p.y+p.h/2,x2=c.x,y2=c.y+c.h/2;
+    const dx=Math.max(36,Math.abs(x2-x1)*.5);
+    ctx.beginPath();ctx.moveTo(x1,y1);
+    ctx.bezierCurveTo(x1+dx,y1,x2-dx,y2,x2,y2);
+    ctx.strokeStyle='#3d4663';ctx.lineWidth=2;ctx.stroke();
+  });
+  data.forEach((n,i)=>{
+    const b=box[i],r=11;
+    roundRect(ctx,b.x,b.y,b.w,b.h,r);
+    if(n.root){
+      const g=ctx.createLinearGradient(b.x,b.y,b.x+b.w,b.y+b.h);
+      g.addColorStop(0,'#3a2f78');g.addColorStop(1,'#2f3a6b');
+      ctx.fillStyle=g;
+    } else ctx.fillStyle='#1c2030';
+    ctx.fill();
+    ctx.strokeStyle=n.root?'#5f52c9':'#39415a';ctx.lineWidth=1.5;ctx.stroke();
+    ctx.fillStyle='#e7e9f0';
+    ctx.font=(n.root?'700 14px ':'550 13px ')+'-apple-system,"Segoe UI",Roboto,sans-serif';
+    ctx.textBaseline='middle';ctx.textAlign='center';
+    const lines=wrapText(ctx,n.text,b.w-26);
+    const lh=18;
+    const startY=b.y+b.h/2-((lines.length-1)*lh)/2;
+    lines.forEach((ln,k)=>ctx.fillText(ln,b.x+b.w/2,startY+k*lh));
+  });
+  cv.toBlob(blob=>{download(safeName(it.title)+'.png',blob);toast('🖼 PNG diunduh');},'image/png');
+}
+function roundRect(ctx,x,y,w,h,r){
+  ctx.beginPath();ctx.moveTo(x+r,y);
+  ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();
+}
+function wrapText(ctx,text,maxWidth){
+  const words=String(text).split(/\s+/);
+  const lines=[];let cur='';
+  words.forEach(w=>{
+    const test=cur?cur+' '+w:w;
+    if(ctx.measureText(test).width>maxWidth&&cur){lines.push(cur);cur=w;}
+    else cur=test;
+  });
+  if(cur)lines.push(cur);
+  return lines.length?lines:[''];
+}
+
+/* =========================================================
+   NOTE EDITOR
+   ========================================================= */
+const noteEditor=document.getElementById('noteEditor');
+
+noteEditor.addEventListener('input',()=>{
+  const it=getActive();if(!it||it.type!=='note')return;
+  clearTimeout(noteSaveTimer);
+  noteSaveTimer=setTimeout(()=>{
+    it.html=noteEditor.innerHTML;it.updatedAt=Date.now();
+    save();renderList();
+  },400);
+});
+
+noteEditor.addEventListener('paste',e=>{
+  const items=(e.clipboardData||{}).items||[];
+  for(const item of items){
+    if(item.type&&item.type.startsWith('image/')){
+      e.preventDefault();
+      insertImageFile(item.getAsFile());return;
+    }
+  }
+});
+noteEditor.addEventListener('drop',e=>{
+  const f=e.dataTransfer&&e.dataTransfer.files;
+  if(f&&f.length&&f[0].type.startsWith('image/')){e.preventDefault();insertImageFile(f[0]);}
+});
+
+function insertImageFile(file){
+  if(!file)return;
+  if(file.size>6*1024*1024){toast('⚠️ Gambar terlalu besar (maks 6MB)');return;}
+  const r=new FileReader();
+  r.onload=ev=>{
+    noteEditor.focus();
+    document.execCommand('insertHTML',false,`<img src="${ev.target.result}" alt="gambar"><p><br></p>`);
+    noteEditor.dispatchEvent(new Event('input'));
+    toast('🖼 Gambar disisipkan');
+  };
+  r.readAsDataURL(file);
+}
+
+document.querySelectorAll('.note-toolbar button').forEach(btn=>{
+  btn.addEventListener('mousedown',e=>e.preventDefault());
+  btn.addEventListener('touchstart',e=>{e.preventDefault();btn.click();},{passive:false});
+  btn.addEventListener('click',()=>{
+    const cmd=btn.dataset.cmd,block=btn.dataset.block;
+    noteEditor.focus();
+    if(cmd)document.execCommand(cmd,false,null);
+    else if(block)document.execCommand('formatBlock',false,'<'+block+'>');
+    noteEditor.dispatchEvent(new Event('input'));
+  });
+});
+document.getElementById('insertImg').addEventListener('click',()=>{
+  const p=document.getElementById('filePick');p.value='';
+  p.onchange=()=>{if(p.files[0])insertImageFile(p.files[0]);};p.click();
+});
+document.getElementById('insertLink').addEventListener('click',()=>{
+  const url=prompt('URL tautan:','https://');
+  if(url){noteEditor.focus();document.execCommand('createLink',false,url);noteEditor.dispatchEvent(new Event('input'));}
+});
+document.getElementById('clearFmt').addEventListener('click',()=>{
+  noteEditor.focus();
+  document.execCommand('removeFormat',false,null);
+  document.execCommand('formatBlock',false,'<p>');
+  noteEditor.dispatchEvent(new Event('input'));
+});
+
+/* =========================================================
+   MODAL
+   ========================================================= */
+const modalBg=document.getElementById('modalBg');
+const modalTitle=document.getElementById('modalTitle');
+const modalDesc=document.getElementById('modalDesc');
+const modalBody=document.getElementById('modalBody');
+const modalRow=document.getElementById('modalRow');
+
+function showModal(title,desc,buttons,bodyHtml){
+  modalTitle.textContent=title;
+  modalDesc.textContent=desc||'';
+  modalBody.innerHTML=bodyHtml||'';
+  modalRow.innerHTML='';
+  (buttons||[]).forEach(b=>{
+    const el=document.createElement('button');
+    el.className='btn'+(b.primary?' pri':'');
+    el.textContent=b.label;
+    if(b.danger){el.style.color='#ff5c72';el.style.borderColor='rgba(255,92,114,.4)';}
+    el.onclick=()=>{b.fn&&b.fn();closeModal();};
+    modalRow.appendChild(el);
+  });
+  const c=document.createElement('button');
+  c.className='btn';c.textContent='Tutup';c.onclick=closeModal;
+  modalRow.appendChild(c);
+  modalBg.classList.add('on');
+}
+function closeModal(){modalBg.classList.remove('on');}
+modalBg.addEventListener('click',e=>{if(e.target===modalBg)closeModal();});
+
+function showExportMenu(){
+  const it=getActive();if(!it)return;
+  if(it.type==='mindmap'){
+    modalBody.innerHTML=`
+      <div style="display:grid;gap:8px">
+        <button class="btn" style="justify-content:flex-start" onclick="exportMMPNG();closeModal();">🖼 Gambar PNG</button>
+        <button class="btn" style="justify-content:flex-start" onclick="exportMMJson();closeModal();">🗂 JSON</button>
+        <button class="btn" style="justify-content:flex-start" onclick="exportMMMarkdown();closeModal();">📄 Markdown</button>
+        <button class="btn" style="justify-content:flex-start" onclick="exportMMText();closeModal();">📃 Teks (.txt)</button>
+      </div>`;
+    showModal('Ekspor Peta',`Format untuk "${it.title}".`);
+  } else {
+    modalBody.innerHTML=`
+      <div style="display:grid;gap:8px">
+        <button class="btn" style="justify-content:flex-start" onclick="exportNoteHtml();closeModal();">🌐 HTML</button>
+        <button class="btn" style="justify-content:flex-start" onclick="exportNoteMarkdown();closeModal();">📄 Markdown</button>
+        <button class="btn" style="justify-content:flex-start" onclick="exportNoteText();closeModal();">📃 Teks (.txt)</button>
+        <button class="btn" style="justify-content:flex-start" onclick="window.print();closeModal();">🖨 PDF (Cetak)</button>
+      </div>`;
+    showModal('Ekspor Catatan',`Format untuk "${it.title}".`);
+  }
+}
+window.exportMMPNG=exportMindmapPNG;
+window.exportMMJson=()=>{
+  const it=getActive();
+  download(safeName(it.title)+'.json',JSON.stringify(it,null,2),'application/json');
+  toast('🗂 JSON diunduh');
+};
+function mmToTree(it,bullets){
+  const c=id=>it.nodes.filter(n=>n.parentId===id);
+  const root=it.nodes.find(n=>!n.parentId)||it.nodes[0];
+  if(!root)return '';
+  let out='';
+  (function walk(n,d){
+    const ind=bullets?'  '.repeat(d)+(d?'- ':''):'  '.repeat(d);
+    out+=ind+(n.title||'')+'\n';
+    c(n.id).forEach(k=>walk(k,d+1));
+  })(root,0);
+  return out;
+}
+window.exportMMMarkdown=()=>{
+  const it=getActive();
+  const body='# '+(it.title||'Peta')+'\n\n'+mmToTree(it,true);
+  download(safeName(it.title)+'.md',body,'text/markdown;charset=utf-8');
+  toast('📄 Markdown diunduh');
+};
+window.exportMMText=()=>{
+  const it=getActive();
+  download(safeName(it.title)+'.txt',mmToTree(it,false),'text/plain;charset=utf-8');
+  toast('📃 Teks diunduh');
+};
+function noteFullHtml(it){
+  return `<!DOCTYPE html><html lang="id"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${esc(it.title)}</title>
+<style>body{margin:0;background:#0f1117;color:#e7e9f0;font-family:-apple-system,"Segoe UI",Roboto,sans-serif;font-size:16px;line-height:1.75}
+.wrap{max-width:780px;margin:0 auto;padding:48px 24px 120px}
+h1.title{font-size:30px;margin:0 0 6px}
+.date{color:#8b93a7;font-size:13px;margin-bottom:30px;padding-bottom:16px;border-bottom:1px solid #272d3f}
+img{max-width:100%;border-radius:10px;margin:10px 0}
+blockquote{border-left:3px solid #7c5cff;margin:.9em 0;padding:8px 16px;background:rgba(124,92,255,.07)}
+code{background:#1c2130;padding:2px 6px;border-radius:5px}
+a{color:#4dd4c0}</style></head><body><div class="wrap">
+<h1 class="title">${esc(it.title)}</h1>
+<div class="date">${new Date(it.createdAt||Date.now()).toLocaleString('id-ID',{dateStyle:'long',timeStyle:'short'})}</div>
+${it.html||'<p><em>Kosong</em></p>'}</div></body></html>`;
+}
+window.exportNoteHtml=()=>{
+  const it=getActive();
+  download(safeName(it.title)+'.html',noteFullHtml(it),'text/html;charset=utf-8');
+  toast('🌐 HTML diunduh');
+};
+window.exportNoteText=()=>{
+  const it=getActive();
+  const d=document.createElement('div');d.innerHTML=it.html||'';
+  const txt=(it.title||'')+'\n'+'='.repeat((it.title||'').length)+'\n\n'+(d.innerText||'');
+  download(safeName(it.title)+'.txt',txt,'text/plain;charset=utf-8');
+  toast('📃 Teks diunduh');
+};
+function domToMd(node){
+  if(node.nodeType===3)return node.textContent.replace(/\s+/g,' ');
+  if(node.nodeType!==1)return '';
+  const tag=node.tagName.toLowerCase();
+  const inner=[...node.childNodes].map(domToMd).join('');
+  switch(tag){
+    case 'br':return '\n';
+    case 'strong':case 'b':return inner.trim()?`**${inner.trim()}**`:'';
+    case 'em':case 'i':return inner.trim()?`*${inner.trim()}*`:'';
+    case 'u':return inner.trim()?`<u>${inner.trim()}</u>`:'';
+    case 's':case 'strike':case 'del':return inner.trim()?`~~${inner.trim()}~~`:'';
+    case 'h1':return `\n# ${inner.trim()}\n`;
+    case 'h2':return `\n## ${inner.trim()}\n`;
+    case 'h3':return `\n### ${inner.trim()}\n`;
+    case 'p':case 'div':return `\n${inner.trim()}\n`;
+    case 'li':return `- ${inner.trim()}\n`;
+    case 'ul':case 'ol':return `\n${inner}\n`;
+    case 'blockquote':return `\n> ${inner.trim().replace(/\n/g,'\n> ')}\n`;
+    case 'code':return node.parentElement&&node.parentElement.tagName.toLowerCase()==='pre'?inner:`\`${inner}\``;
+    case 'pre':return `\n\`\`\`\n${node.textContent}\n\`\`\`\n`;
+    case 'a':return `[${inner.trim()||node.getAttribute('href')}](${node.getAttribute('href')})`;
+    case 'img':return `\n![gambar](${node.getAttribute('src')})\n`;
+    case 'hr':return `\n---\n`;
+    default:return inner;
+  }
+}
+window.exportNoteMarkdown=()=>{
+  const it=getActive();
+  const d=document.createElement('div');d.innerHTML=it.html||'';
+  const md='# '+(it.title||'Catatan')+'\n\n'+domToMd(d).replace(/\n{3,}/g,'\n\n').trim()+'\n';
+  download(safeName(it.title)+'.md',md,'text/markdown;charset=utf-8');
+  toast('📄 Markdown diunduh');
+};
+
+/* EXPORT/IMPORT ALL */
+document.getElementById('exportAll').onclick=()=>{
+  if(!state.items.length){toast('⚠️ Belum ada data');return;}
+  modalBody.innerHTML=`
+    <div style="display:grid;gap:8px">
+      <button class="btn" style="justify-content:flex-start" onclick="exportAllJson();closeModal();">🗂 JSON — cadangan lengkap</button>
+    </div>`;
+  showModal('Ekspor Semua',`${state.items.length} item akan diekspor.`);
+};
+window.exportAllJson=()=>{
+  const p={app:'PetaIde',version:2,exportedAt:new Date().toISOString(),items:state.items};
+  download('petaide-backup-'+new Date().toISOString().slice(0,10)+'.json',
+    JSON.stringify(p,null,2),'application/json');
+  toast('🗂 Cadangan diunduh');
+};
+document.getElementById('importAll').onclick=()=>{
+  const p=document.getElementById('jsonPick');p.value='';
+  p.onchange=()=>{
+    const f=p.files[0];if(!f)return;
+    const r=new FileReader();
+    r.onload=ev=>{
+      try{
+        const d=JSON.parse(ev.target.result);
+        let inc=[];
+        if(Array.isArray(d))inc=d;
+        else if(d&&Array.isArray(d.items))inc=d.items;
+        else throw 0;
+        inc=inc.filter(x=>x&&x.id&&(x.type==='mindmap'||x.type==='note'));
+        if(!inc.length){toast('⚠️ Tidak ada item valid');return;}
+        const ex=new Set(state.items.map(i=>i.id));
+        let a=0,u=0;
+        inc.forEach(x=>{
+          if(ex.has(x.id)){
+            const i=state.items.findIndex(y=>y.id===x.id);
+            state.items[i]=x;u++;
+          } else {state.items.push(x);a++;}
+        });
+        save();renderList();renderWorkspace();
+        toast(`⬆ ${a} baru, ${u} diperbarui`);
+      }catch(e){toast('❌ Berkas tidak valid');}
+    };
+    r.readAsText(f);
+  };
+  p.click();
+};
+
+/* =========================================================
+   WIRING
+   ========================================================= */
+document.getElementById('newMap').onclick=createMindmap;
+document.getElementById('newNote').onclick=createNote;
+document.getElementById('emptyNewMap').onclick=createMindmap;
+document.getElementById('emptyNewNote').onclick=createNote;
+document.getElementById('mmAddChild').onclick=addChild;
+document.getElementById('mmAddSibling').onclick=addSibling;
+document.getElementById('mmLayout').onclick=autoLayout;
+document.getElementById('mmFit').onclick=fitView;
+document.getElementById('mmZoomIn').onclick=()=>{mmView.scale=Math.min(3,mmView.scale*1.18);applyTransform();};
+document.getElementById('mmZoomOut').onclick=()=>{mmView.scale=Math.max(.18,mmView.scale/1.18);applyTransform();};
+document.getElementById('mmExportPng').onclick=exportMindmapPNG;
+searchEl.addEventListener('input',renderList);
+
+/* SIDEBAR */
+const sidebar=document.getElementById('sidebar');
+const scrim=document.getElementById('scrim');
+document.getElementById('hamburger').onclick=()=>{
+  sidebar.classList.toggle('open');
+  scrim.classList.toggle('on',sidebar.classList.contains('open'));
+};
+scrim.onclick=closeSidebar;
+function closeSidebar(){sidebar.classList.remove('open');scrim.classList.remove('on');}
+
+/* SCROLL TOP */
+const sTop=document.getElementById('scrollTop');
+document.querySelector('.note-scroll').addEventListener('scroll',e=>{
+  sTop.classList.toggle('on',e.target.scrollTop>300);
+});
+sTop.onclick=()=>document.querySelector('.note-scroll').scrollTo({top:0,behavior:'smooth'});
+
+/* RESIZE */
+let rz;
+window.addEventListener('resize',()=>{
+  clearTimeout(rz);
+  rz=setTimeout(()=>{const it=getActive();if(it&&it.type==='mindmap')drawEdges();},150);
+});
+
+/* GLOBAL */
+document.addEventListener('keydown',e=>{
+  const mod=e.ctrlKey||e.metaKey;
+  if(mod&&e.key==='s'){e.preventDefault();
+    const it=getActive();
+    if(it){if(it.type==='note')it.html=noteEditor.innerHTML;it.updatedAt=Date.now();save();toast('💾 Tersimpan');}
+  }
+});
+
+/* =========================================================
+   INIT
+   ========================================================= */
+load();
+renderList();
+renderWorkspace();
+
+// splash hide
+window.addEventListener('load',()=>{
+  setTimeout(()=>document.getElementById('splash').classList.add('hide'),700);
+});
+setTimeout(()=>document.getElementById('splash').classList.add('hide'),1800);
+
+// contoh pertama
+if(!state.items.length){
+  createMindmap();
+  const it=getActive();
+  it.title='Selamat Datang di PetaIde';
+  const root=it.nodes[0];
+  root.title='PetaIde 📄';
+  root.content='Ini contoh peta pikiran. Tap simpul mana pun untuk membuka isinya.';
+  const c1={id:uid(),title:'Peta Pikiran',content:'Tap simpul → pindah ke tengah → buka isi.\nDrag simpul untuk memindah.',x:root.x+260,y:root.y-120,parentId:root.id};
+  const c2={id:uid(),title:'Catatan + Gambar',content:'Editor teks kaya.\nTempel gambar langsung via Ctrl+V atau tombol 🖼.',x:root.x+260,y:root.y+40,parentId:root.id};
+  const c3={id:uid(),title:'Ekspor Multi-Format',content:'PNG · HTML · Markdown · JSON · PDF.',x:root.x+260,y:root.y+200,parentId:root.id};
+  it.nodes.push(c1,c2,c3);
+  selectedNodeId=root.id;
+  save();renderList();renderWorkspace();
+  setTimeout(()=>toast('👋 Tap simpul untuk membuka isi'),1000);
+}
+
+/* =========================================================
+   PWA: SERVICE WORKER
+   ========================================================= */
+if('serviceWorker' in navigator && location.protocol!=='file:'){
+  window.addEventListener('load',()=>{
+    navigator.serviceWorker.register('sw.js').catch(()=>{});
+  });
+}
+</script>
+</body>
+</html>
+```
+
+---
+
+📄 File 2: manifest.json
+
+```json
+{
+  "name": "PetaIde — Catatan & Peta Pikiran",
+  "short_name": "PetaIde",
+  "description": "Catat ide dengan peta pikiran dan catatan bergambar. Bekerja offline.",
+  "lang": "id",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0f1117",
+  "theme_color": "#0f1117",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
+```
+
+---
+
+📄 File 3: sw.js
+
+```js
+const CACHE='petaide-v2';
+const ASSETS=[
+  './',
+  './index.html',
+  './manifest.json',
+  './icon-192.png',
+  './icon-512.png'
+];
+
+self.addEventListener('install',e=>{
+  e.waitUntil(
+    caches.open(CACHE).then(c=>Promise.allSettled(ASSETS.map(u=>c.add(u))))
+      .then(()=>self.skipWaiting())
+  );
+});
+
+self.addEventListener('activate',e=>{
+  e.waitUntil(
+    caches.keys().then(keys=>Promise.all(
+      keys.filter(k=>k!==CACHE).map(k=>caches.delete(k))
+    )).then(()=>self.clients.claim())
+  );
+});
+
+self.addEventListener('fetch',e=>{
+  if(e.request.method!=='GET')return;
+  e.respondWith(
+    caches.match(e.request).then(r=>{
+      if(r)return r;
+      return fetch(e.request).then(res=>{
+        if(res&&res.status===200&&res.type==='basic'){
+          const cl=res.clone();
+          caches.open(CACHE).then(c=>c.put(e.request,cl)).catch(()=>{});
+        }
+        return res;
+      }).catch(()=>caches.match('./index.html'));
+    })
+  );
+});
+```
+
+---
+
+📄 File 4: buat-ikon.html
+
+Buka file ini sekali saja di browser (di HP atau PC) untuk membuat ikon. Klik tombol → ikon terunduh.
+
+```html
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<title>Buat Ikon PetaIde</title>
+<style>
+body{margin:0;min-height:100vh;display:grid;place-items:center;
+  background:#0f1117;color:#e7e9f0;
+  font-family:-apple-system,"Segoe UI",Roboto,sans-serif;padding:20px}
+.card{max-width:420px;text-align:center;background:#151823;
+  border:1px solid #272d3f;border-radius:16px;padding:28px}
+h1{margin:0 0 8px;font-size:19px}
+p{color:#8b93a7;font-size:13.5px;line-height:1.7;margin:0 0 20px}
+.preview{width:120px;height:120px;margin:0 auto 20px;border-radius:22px;
+  background:linear-gradient(135deg,#7c5cff,#4dd4c0);
+  display:grid;place-items:center;font-size:66px;
+  box-shadow:0 10px 30px rgba(124,92,255,.35)}
+button{padding:12px 20px;border-radius:10px;border:none;
+  background:linear-gradient(135deg,#7c5cff,#6a4be0);color:#fff;
+  font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;
+  margin:4px}
+button.alt{background:#1c2030;border:1px solid #272d3f}
+button:active{transform:scale(.96)}
+.step{text-align:left;color:#8b93a7;font-size:12.5px;line-height:1.8;
+  background:#11141d;border-radius:10px;padding:14px 16px;margin-top:18px}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="preview">📄</div>
+  <h1>Ikon PetaIde</h1>
+  <p>Klik kedua tombol di bawah untuk membuat ikon aplikasi. File akan masuk ke folder <b>Downloads</b> HP/PC-mu.</p>
+  <button onclick="gen(192)">⬇ Ikon 192×192</button>
+  <button onclick="gen(512)">⬇ Ikon 512×512</button>
+  <div class="step">
+    <b>Langkah setelah unduh:</b><br>
+    1. Buka folder <b>Downloads</b>.<br>
+    2. Pindahkan <code>icon-192.png</code> dan <code>icon-512.png</code> ke folder <code>petaide</code> (satu folder dengan <code>index.html</code>).<br>
+    3. Selesai.
+  </div>
+</div>
+
+<script>
+function gen(size){
+  const c=document.createElement('canvas');
+  c.width=size;c.height=size;
+  const ctx=c.getContext('2d');
+
+  // background gradient
+  const g=ctx.createLinearGradient(0,0,size,size);
+  g.addColorStop(0,'#7c5cff');
+  g.addColorStop(1,'#4dd4c0');
+  ctx.fillStyle=g;
+
+  // rounded square
+  const r=size*0.22;
+  ctx.beginPath();
+  ctx.moveTo(r,0);
+  ctx.arcTo(size,0,size,size,r);
+  ctx.arcTo(size,size,0,size,r);
+  ctx.arcTo(0,size,0,0,r);
+  ctx.arcTo(0,0,size,0,r);
+  ctx.closePath();
+  ctx.fill();
+
+  // emoji document
+  ctx.font=`${size*0.56}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif`;
+  ctx.textAlign='center';
+  ctx.textBaseline='middle';
+  ctx.fillText('📄', size/2, size*0.53);
+
+  c.toBlob(b=>{
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(b);
+    a.download='icon-'+size+'.png';
+    document.body.appendChild(a);a.click();a.remove();
+  },'image/png');
+}
+</script>
+</body>
+</html>
