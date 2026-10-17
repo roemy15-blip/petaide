@@ -755,8 +755,9 @@ function attachNodeEvents(el,node,item){
     const dy=(e.clientY-startY)/mmView.scale;
     if(Math.abs(e.clientX-startX)>8||Math.abs(e.clientY-startY)>8)moved=true;
     if(moved){
-      node.x=Math.round(origX+dx);
-      node.y=Math.round(origY+dy);
+      var GRID = 20; // Ukuran petak
+node.x = Math.round((origX + dx) / GRID) * GRID;
+node.y = Math.round((origY + dy) / GRID) * GRID;
       el.style.left=node.x+'px';el.style.top=node.y+'px';
       drawEdges();
     }
