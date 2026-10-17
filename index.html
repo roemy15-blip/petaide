@@ -118,8 +118,10 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 .hamburger{display:none;font-size:22px;padding:8px;border-radius:9px}
 .hamburger:active{background:var(--panel2)}
 .title-input{
-  flex:1;min-width:0;background:transparent;border:none;outline:none;color:var(--text);
-  font-size:15px;font-weight:650;font-family:inherit;padding:8px 10px;border-radius:9px;
+  flex:1;min-width:0;background:transparent;border:none;
+  outline:none;color:var(--text);font-size:15px;font-weight:650;
+  font-family:inherit;padding:8px 10px;border-radius:9px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
 }
 .title-input:focus{background:#1a1e2b}
 .top-actions{display:flex;gap:6px}
